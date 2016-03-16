@@ -150,7 +150,18 @@ uint32_t lp_ticker_get_compare_match(void)
     return lp_compare_value;
 }
 
-void lp_ticker_set_interrupt(uint32_t now, uint32_t time) {
+static bool time_is_in_period(uint32_t start, uint32_t time, uint32_t end)
+{
+    if((time >= start && (time < end || start >= end)) ||
+        (time < start && end < start && end > time)) {
+        return true;
+    }
+    return false;
+}
+
+// now is the checked-current counter value, which we use to calculate delta
+static void lp_ticker_set_interrupt_internal(uint32_t now, uint32_t time)
+{
     // On K64F, the compare value can be only set when the LPTMR is disabled
     // However, disabling the LPTMR will automatically clear the LPTMR counter
     // So we need to compensate for the time that already passed
@@ -180,9 +191,23 @@ void lp_ticker_set_interrupt(uint32_t now, uint32_t time) {
     RTC_HAL_EnableCounter(RTC_BASE, true);
 }
 
+void lp_ticker_set_interrupt(uint32_t now, uint32_t time) {
+    // use the latest real time
+    uint32_t real_now = lp_ticker_read();
+    if (!time_is_in_period(now, real_now, time)) {
+        return;
+    }
+    lp_ticker_set_interrupt_internal(real_now, time);
+}
+
 void lp_ticker_sleep_until(uint32_t now, uint32_t time)
 {
-    lp_ticker_set_interrupt(now, time);
+    // use the latest real time
+    uint32_t real_now = lp_ticker_read();
+    if (!time_is_in_period(now, real_now, time)) {
+        return;
+    }
+    lp_ticker_set_interrupt_internal(real_now, time);
     sleep_t sleep_obj;
     mbed_enter_sleep(&sleep_obj);
     // if LPTMR is running and we scheduled it, we know that RTC was fired while
